@@ -867,6 +867,8 @@ end
 
 ## Defining mappings
 
+### API functions
+
 Neovim provides a list of API functions to set, get and delete mappings:
 
 - Global mappings:
@@ -941,6 +943,10 @@ Again, `vim.api.nvim_buf_del_keymap()`, takes a buffer number as its first argum
 vim.api.nvim_buf_del_keymap(0, 'i', '<Tab>')
 -- :iunmap <buffer> <Tab>
 ```
+
+### vim.keymap
+
+**TODO**
 
 ## Defining user commands
 
