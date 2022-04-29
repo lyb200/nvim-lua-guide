@@ -359,7 +359,7 @@ end
 EOF
 
 inoremap <silent> <expr> <Tab>
-    \ pumvisible() ? "\<C-n>" :
+    \ pumvisible() ? "\<C-N>" :
     \ v:lua.check_back_space() ? "\<Tab>" :
     \ completion#trigger_completion()
 
@@ -534,20 +534,20 @@ This API function allows you to escape terminal codes and Vim keycodes.
 You may have come across mappings like this one:
 
 ```vim
-inoremap <expr> <Tab> pumvisible() ? "\<C-n>" : "\<Tab>"
+inoremap <expr> <Tab> pumvisible() ? "\<C-N>" : "\<Tab>"
 ```
 
 Trying to do the same in Lua can prove to be a challenge. You might be tempted to do it like this:
 
 ```lua
 function _G.smart_tab()
-    return vim.fn.pumvisible() == 1 and [[\<C-n>]] or [[\<Tab>]]
+    return vim.fn.pumvisible() == 1 and [[\<C-N>]] or [[\<Tab>]]
 end
 
 vim.api.nvim_set_keymap('i', '<Tab>', 'v:lua.smart_tab()', {expr = true, noremap = true})
 ```
 
-only to find out that the mapping inserts `\<Tab>` and `\<C-n>` literally...
+only to find out that the mapping inserts `\<Tab>` and `\<C-N>` literally...
 
 Being able to escape keycodes is actually a Vimscript feature. Aside from the usual escape sequences like `\r`, `\42` or `\x10` that are common to many programming languages, Vimscript `expr-quotes` (strings surrounded with double quotes) allow you to escape the human-readable representation of Vim keycodes.
 
@@ -578,10 +578,18 @@ local function t(str)
 end
 
 function _G.smart_tab()
-    return vim.fn.pumvisible() == 1 and t'<C-n>' or t'<Tab>'
+    return vim.fn.pumvisible() == 1 and t'<C-N>' or t'<Tab>'
 end
 
 vim.api.nvim_set_keymap('i', '<Tab>', 'v:lua.smart_tab()', {expr = true, noremap = true})
+```
+
+This is not necessary with `vim.keymap.set()` as it automatically transforms vim keycodes returned by Lua functions in `expr` mappings by default:
+
+```lua
+vim.keymap.set('i', '<Tab>', function()
+    return vim.fn.pumvisible() == 1 and '<C-N>' or '<Tab>'
+end, {expr = true})
 ```
 
 See also:
@@ -642,15 +650,15 @@ print(vim.api.nvim_buf_get_option(10, 'shiftwidth')) -- 4
 
 A few meta-accessors are available if you want to set options in a more "idiomatic" way. They essentially wrap the above API functions and allow you to manipulate options as if they were variables:
 
-- [`vim.o`](https://neovim.io/doc/user/lua.html#vim.o): behaves like `:set`
-- [`vim.go`](https://neovim.io/doc/user/lua.html#vim.go): behaves like `:setglobal`
-- [`vim.bo`](https://neovim.io/doc/user/lua.html#vim.bo): behaves like `:setlocal` for buffer-local options
-- [`vim.wo`](https://neovim.io/doc/user/lua.html#vim.wo): behaves like `:setlocal` for window-local options
+- [`vim.o`](https://neovim.io/doc/user/lua.html#vim.o): behaves like `:let &{option-name}`
+- [`vim.go`](https://neovim.io/doc/user/lua.html#vim.go): behaves like `:let &g:{option-name}`
+- [`vim.bo`](https://neovim.io/doc/user/lua.html#vim.bo): behaves like `:let &l:{option-name}` for buffer-local options
+- [`vim.wo`](https://neovim.io/doc/user/lua.html#vim.wo): behaves like `:let &l:{option-name}` for window-local options
 
 ```lua
-vim.o.smarttab = false
+vim.o.smarttab = false -- let &smarttab = v:false
 print(vim.o.smarttab) -- false
-vim.o.isfname = vim.o.isfname .. ',@-@' -- on Linux: set isfname+=@-@
+vim.o.isfname = vim.o.isfname .. ',@-@' -- on Linux: let &isfname = &isfname .. ',@-@'
 print(vim.o.isfname) -- '@,48-57,/,.,-,_,+,,,#,$,%,~,=,@-@'
 
 vim.bo.shiftwidth = 4
@@ -868,6 +876,8 @@ end
 
 ## Defining mappings
 
+### API functions
+
 Neovim provides a list of API functions to set, get and delete mappings:
 
 - Global mappings:
@@ -901,7 +911,7 @@ The second argument is a string containing the left-hand side of the mapping (th
 
 The third argument is a string containing the right-hand side of the mapping (the command to execute).
 
-The final argument is a table containing boolean options for the mapping as defined in [`:help :map-arguments`](https://neovim.io/doc/user/map.html#:map-arguments) (including `noremap` and excluding `buffer`).
+The final argument is a table containing boolean options for the mapping as defined in [`:help :map-arguments`](https://neovim.io/doc/user/map.html#:map-arguments) (including `noremap` and excluding `buffer`). Since Neovim 0.7.0, you can also pass a `callback` option to invoke a Lua function instead of the right-hand side when executing the mapping.
 
 Buffer-local mappings also take a buffer number as their first argument (`0` sets the mapping for the current buffer).
 
@@ -913,6 +923,15 @@ vim.api.nvim_set_keymap('n', '<Leader>tegf',  [[<Cmd>lua require('telescope.buil
 
 vim.api.nvim_buf_set_keymap(0, '', 'cc', 'line(".") == 1 ? "cc" : "ggcc"', { noremap = true, expr = true })
 -- :noremap <buffer> <expr> cc line('.') == 1 ? 'cc' : 'ggcc'
+
+vim.api.nvim_set_keymap('n', '<Leader>ex', '', {
+    noremap = true,
+    callback = function()
+        print('My example')
+    end,
+    -- Since Lua function don't have a useful string representation, you can use the "desc" option to document your mapping
+    desc = 'Prints "My example" in the message area',
+})
 ```
 
 `vim.api.nvim_get_keymap()` takes a string containing the shortname of the mode for which you want the list of mappings (see table above). The return value is a table containing all global mappings for the mode.
@@ -943,6 +962,73 @@ vim.api.nvim_buf_del_keymap(0, 'i', '<Tab>')
 -- :iunmap <buffer> <Tab>
 ```
 
+### vim.keymap
+
+:warning: The functions discussed in this section are only available in Neovim 0.7.0+
+
+Neovim provides two functions to set/del mappings:
+- [`vim.keymap.set()`](https://neovim.io/doc/user/lua.html#vim.keymap.set())
+- [`vim.keymap.del()`](https://neovim.io/doc/user/lua.html#vim.keymap.del())
+
+These are similar to the above API functions with added syntactic sugar.
+
+`vim.keymap.set()` takes a string as its first argument. It can also be a table of strings to define mappings for multiple modes at once:
+
+```lua
+vim.keymap.set('n', '<Leader>ex1', '<Cmd>lua vim.notify("Example 1")<CR>')
+vim.keymap.set({'n', 'c'}, '<Leader>ex2', '<Cmd>lua vim.notify("Example 2")<CR>')
+```
+
+The second argument is the left-hand side of the mapping.
+
+The third argument is the right-hand side of the mapping, which can either be a string or a Lua function:
+
+```lua
+vim.keymap.set('n', '<Leader>ex1', '<Cmd>echomsg "Example 1"<CR>')
+vim.keymap.set('n', '<Leader>ex2', function() print("Example 2") end)
+vim.keymap.set('n', '<Leader>pl1', require('plugin').plugin_action)
+-- To avoid the startup cost of requiring the module, you can wrap it in a function to require it lazily when invoking the mapping:
+vim.keymap.set('n', '<Leader>pl2', function() require('plugin').plugin_action() end)
+```
+
+The fourth (optional) argument is a table of options that correspond to the options passed to `vim.api.nvim_set_keymap()`, with a few additions (see [`:help vim.keymap.set()`](https://neovim.io/doc/user/lua.html#vim.keymap.set()) for the full list).
+
+```lua
+vim.keymap.set('n', '<Leader>ex1', '<Cmd>echomsg "Example 1"<CR>', {buffer = true})
+vim.keymap.set('n', '<Leader>ex2', function() print('Example 2') end, {desc = 'Prints "Example 2" to the message area'})
+```
+
+An interesting feature of this API is that it irons out some historical quirks of Vim mappings:
+- Mappings are `noremap` by default, except when the `rhs` is a `<Plug>` mapping. This means you rarely have to think about whether a mapping should be recursive or not:
+    ```lua
+    vim.keymap.set('n', '<Leader>test1', '<Cmd>echo "test"<CR>')
+    -- :nnoremap <Leader>test <Cmd>echo "test"<CR>
+
+    -- If you DO want the mapping to be recursive, set the "remap" option to "true"
+    vim.keymap.set('n', '>', ']', {remap = true})
+    -- :nmap > ]
+
+    -- <Plug> mappings don't work unless they're recursive, vim.keymap.set() handles that for you automatically
+    vim.keymap.set('n', '<Leader>plug', '<Plug>(plugin)')
+    -- :nmap <Leader>plug <Plug>(plugin)
+    ```
+- In `expr` mappings, `nvim_replace_termcodes()` is automatically applied to strings returned from Lua functions:
+    ```lua
+    vim.keymap.set('i', '<Tab>', function()
+        return vim.fn.pumvisible == 1 and '<C-N>' or '<Tab>'
+    end, {expr = true})
+    ```
+
+See also:
+- [`:help recursive_mapping`](https://neovim.io/doc/user/map.html#recursive_mapping)
+
+`vim.keymap.del()` works the same way but deletes mappings instead:
+
+```lua
+vim.keymap.del('n', '<Leader>ex1')
+vim.keymap.del({'n', 'c'}, '<Leader>ex2', {buffer = true})
+```
+
 ## Defining user commands
 
 :warning: The API functions discussed in this section are only available in Neovim 0.7.0+
@@ -950,13 +1036,13 @@ vim.api.nvim_buf_del_keymap(0, 'i', '<Tab>')
 Neovim provides API functions for user-defined commands:
 
 - Global user commands:
-    - [`vim.api.nvim_add_user_command()`](https://neovim.io/doc/user/api.html#nvim_add_user_command())
+    - [`vim.api.nvim_create_user_command()`](https://neovim.io/doc/user/api.html#nvim_create_user_command())
     - [`vim.api.nvim_del_user_command()`](https://neovim.io/doc/user/api.html#nvim_del_user_command())
 - Buffer-local user commands:
-    - [`vim.api.nvim_buf_add_user_command()`](https://neovim.io/doc/user/api.html#nvim_buf_add_user_command())
+    - [`vim.api.nvim_buf_create_user_command()`](https://neovim.io/doc/user/api.html#nvim_buf_create_user_command())
     - [`vim.api.nvim_buf_del_user_command()`](https://neovim.io/doc/user/api.html#nvim_buf_del_user_command())
 
-Let's start with `vim.api.nvim_add_user_command()`
+Let's start with `vim.api.nvim_create_user_command()`
 
 The first argument passed to this function is the name of the command (which must start with an uppercase letter).
 
@@ -964,15 +1050,15 @@ The second argument is the code to execute when invoking said command. It can ei
 
 A string (in which case it will be executed as Vimscript). You can use escape sequences like `<q-args>`, `<range>`, etc. like you would with `:command`
 ```lua
-vim.api.nvim_add_user_command('Upper', 'echo toupper(<q-args>)', { nargs = 1 })
+vim.api.nvim_create_user_command('Upper', 'echo toupper(<q-args>)', { nargs = 1 })
 -- :command! -nargs=1 Upper echo toupper(<q-args>)
 
 vim.cmd('Upper hello world') -- prints "HELLO WORLD"
 ```
 
-Or a Lua function. It receives a dictionary-like table that contains the data normally provided by escape sequences (see [`:help nvim_add_user_command()`](https://neovim.io/doc/user/api.html#nvim_add_user_command()) for a list of available keys)
+Or a Lua function. It receives a dictionary-like table that contains the data normally provided by escape sequences (see [`:help nvim_create_user_command()`](https://neovim.io/doc/user/api.html#nvim_create_user_command()) for a list of available keys)
 ```lua
-vim.api.nvim_add_user_command(
+vim.api.nvim_create_user_command(
     'Upper',
     function(opts)
         print(string.upper(opts.args))
@@ -981,7 +1067,7 @@ vim.api.nvim_add_user_command(
 )
 ```
 
-The third argument lets you pass command attributes as a table (see [`:help command-attributes`](https://neovim.io/doc/user/map.html#command-attributes)). Since you can already define buffer-local user commands with `vim.api.nvim_buf_add_user_command()`, `-buffer` is not a valid attribute.
+The third argument lets you pass command attributes as a table (see [`:help command-attributes`](https://neovim.io/doc/user/map.html#command-attributes)). Since you can already define buffer-local user commands with `vim.api.nvim_buf_create_user_command()`, `-buffer` is not a valid attribute.
 
 Two additional attributes are available:
 - `desc` allows you to control what gets displayed when you run `:command {cmd}` on a command defined as a Lua callback.
@@ -990,7 +1076,7 @@ Two additional attributes are available:
 The `-complete` attribute can take a Lua function in addition to the attributes listed in [`:help :command-complete`](https://neovim.io/doc/user/map.html#:command-complete).
 
 ```lua
-vim.api.nvim_add_user_command('Upper', function() end, {
+vim.api.nvim_create_user_command('Upper', function() end, {
     nargs = 1,
     complete = function(ArgLead, CmdLine, CursorPos)
         -- return completion candidates as a list-like table
@@ -1002,7 +1088,7 @@ vim.api.nvim_add_user_command('Upper', function() end, {
 Buffer-local user commands also take a buffer number as their first argument. This is an advantage over `-buffer` which can only define a command for the current buffer.
 
 ```lua
-vim.api.nvim_buf_add_user_command(4, 'Upper', function() end, {})
+vim.api.nvim_buf_create_user_command(4, 'Upper', function() end, {})
 ```
 
 `vim.api.nvim_del_user_command()` takes a command name.
@@ -1019,7 +1105,7 @@ vim.api.nvim_buf_del_user_command(4, 'Upper')
 ```
 
 See also:
-- [`:help nvim_add_user_command()`](https://neovim.io/doc/user/api.html#nvim_add_user_command())
+- [`:help nvim_create_user_command()`](https://neovim.io/doc/user/api.html#nvim_create_user_command())
 - [`:help 40.2`](https://neovim.io/doc/user/usr_40.html#40.2)
 - [`:help command-attributes`](https://neovim.io/doc/user/map.html#command-attributes)
 
@@ -1043,7 +1129,7 @@ command! -nargs=1 -complete=custom,s:completion_function Test echo <q-args>
 Passing a Lua function to `complete` makes it behave like `customlist` which leaves filtering up to the user:
 
 ```lua
-vim.api.nvim_add_user_command('Test', function() end, {
+vim.api.nvim_create_user_command('Test', function() end, {
     nargs = 1,
     complete = function(ArgLead, CmdLine, CursorPos)
         return {
@@ -1220,6 +1306,30 @@ You can debug Lua code running in a separate Neovim instance with [jbyuki/one-sm
 
 The plugin uses the [Debug Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/). Connecting to a debug adapter requires a DAP client like [mfussenegger/nvim-dap](https://github.com/mfussenegger/nvim-dap/) or [puremourning/vimspector](https://github.com/puremourning/vimspector/).
 
+### Debugging Lua mappings/commands/autocommands
+
+The `:verbose` command allows you to see where a mapping/command/autocommand was defined:
+
+```vim
+:verbose map m
+```
+
+```text
+n  m_          * <Cmd>echo 'example'<CR>
+        Last set from ~/.config/nvim/init.vim line 26
+```
+
+By default, this feature is disabled in Lua for performance reasons. You can enable it by starting Neovim with a verbose level greater than 0:
+
+```sh
+nvim -V1
+```
+
+See also:
+- [`:help 'verbose'`](https://neovim.io/doc/user/options.html#'verbose')
+- [`:help -V`](https://neovim.io/doc/user/starting.html#-V)
+- [neovim/neovim#15079](https://github.com/neovim/neovim/pull/15079)
+
 ### Testing Lua code
 
 - [plenary.nvim: test harness](https://github.com/nvim-lua/plenary.nvim/#plenarytest_harness)
@@ -1277,9 +1387,12 @@ Probably one of the most well-known transpilers for Lua. Adds a lots of convenie
 
 A lisp that compiles to Lua. You can write configuration and plugins for Neovim in Fennel with the [Olical/aniseed](https://github.com/Olical/aniseed) or the [Hotpot](https://github.com/rktjmp/hotpot.nvim) plugin. Additionally, the [Olical/conjure](https://github.com/Olical/conjure) plugin provides an interactive development environment that supports Fennel (among other languages).
 
+- [Teal](https://github.com/teal-language/tl)
+
+The name Teal comes from pronouncing TL (typed lua).  This is exactly what it tries to do - add strong typing to lua while otherwise remaining close to standard lua syntax.  The [nvim-teal-maker](https://github.com/svermeulen/nvim-teal-maker) plugin can be used to write Neovim plugins or configuration files directly in Teal
+
 Other interesting projects:
 - [TypeScriptToLua/TypeScriptToLua](https://github.com/TypeScriptToLua/TypeScriptToLua)
-- [teal-language/tl](https://github.com/teal-language/tl)
 - [Haxe](https://haxe.org/)
 - [SwadicalRag/wasm2lua](https://github.com/SwadicalRag/wasm2lua)
 - [hengestone/lua-languages](https://github.com/hengestone/lua-languages)
